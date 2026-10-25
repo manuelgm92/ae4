@@ -1,0 +1,17 @@
+NAME          IMAGE                COMMAND                  SERVICE   CREATED          STATUS                            PORTS
+dpl-db        postgres:16-alpine   "docker-entrypoint.s…"   db        11 seconds ago   Up 11 seconds (healthy)           5432/tcp
+dpl-django    dpl-app-app          "gunicorn config.wsg…"   app       11 seconds ago   Up 5 seconds (healthy)            8000/tcp
+dpl-nginx     nginx:1.27-alpine    "/docker-entrypoint.…"   nginx     11 seconds ago   Up Less than a second             0.0.0.0:8000->80/tcp, [::]:8000->80/tcp
+dpl-pgadmin   dpage/pgadmin4       "/entrypoint.sh"         pgadmin   11 seconds ago   Up 5 seconds (health: starting)   0.0.0.0:5050->80/tcp, [::]:5050->80/tcp
+HTTP/1.1 200 OK
+Server: nginx/1.27.5
+Date: Sun, 25 Oct 2026 19:25:32 GMT
+Content-Type: text/html; charset=utf-8
+Connection: keep-alive
+
+{"status": "ok", "hostname": "bdcef3216799"} count 
+-------
+    11
+(1 row)
+
+{"lugares": [{"id": 1, "name": "Tokio", "visited": false}, {"id": 2, "name": "Budapest", "visited": true}, {"id": 3, "name": "Nairobi", "visited": false}, {"id": 4, "name": "Berl\u00edn", "visited": true}, {"id": 5, "name": "Lisboa", "visited": true}, {"id": 6, "name": "Denver", "visited": false}, {"id": 7, "name": "Mosc\u00fa", "visited": false}, {"id": 8, "name": "Oslo", "visited": false}, {"id": 9, "name": "R\u00edo", "visited": true}, {"id": 10, "name": "Cincinnati", "visited": false}, {"id": 11, "name": "Helsinki", "visited": false}], "total": 11}
