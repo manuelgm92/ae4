@@ -1,0 +1,96 @@
+name: dpl-app
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: dpl-db
+    environment:
+      POSTGRES_DB: travelroad
+      POSTGRES_USER: alumno
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - db-data:/var/lib/postgresql/data # datos persistentes
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro  # carga inicial
+    healthcheck:
+      # pg_isready comprueba que PostgreSQL acepta conexiones
+      test: ["CMD-SHELL", "pg_isready -U alumno -d travelroad"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: dpl-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+    ports: 
+      - "5050:80"
+    depends_on:
+      db:
+        condition: service_healthy # no arranca hasta que PostgreSQL está sano
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:80/misc/ping | grep -q PING"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+  
+  app:
+    build: ./app  # contexto app/ (usa app/Dockerfile)
+    container_name: dpl-django
+    environment:
+      # Configuración por variables de entorno (sin credenciales reales)
+      APP_MENSAJE: "Hola desde el servidor de aplicaciones DPL (UT4)"
+      APP_DATA_DIR: /data
+      # Capa de datos: la app usa PostgreSQL si DB_HOST está definida
+      DB_HOST: db
+      DB_NAME: travelroad
+      DB_USER: alumno
+      DB_PASSWORD: ${DB_PASSWORD}
+      # Directorio LDAP (UT5): si LDAP_HOST está definida, /api/login autentica
+      # contra el servicio de directorio. Valores de ejemplo; exporta el tuyo:
+      #   export LDAP_HOST="ldap://IP_DPL_LAB"
+      LDAP_HOST: ${LDAP_HOST:-}
+      LDAP_BASE_DN: "ou=usuarios,dc=dpl,dc=local"
+      LDAP_USER_FILTER: "(uid=%s)"
+    volumes:
+    # Persistencia en el anfitrión: ./data queda en tu equipo y es editable.
+    # En Linux, si la app no puede escribir en ./data, ejecuta:
+    #   sudo chown -R 1000:1000 data
+      - ./data:/data
+    depends_on:
+      db:
+        condition: service_healthy  # espera a que PostgreSQL esté listo
+    healthcheck:
+      # Comprueba /healthz cada 15 s con el propio python de la imagen
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # Servicio "nginx": servidor Web y proxy inverso. Sirve el build de Vite
+  # (frontend/dist) y reenvía /api/ y /healthz al servicio "django".
+  # Único puerto publicado al anfitrión: 8000 -> 80.
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: dpl-nginx
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "8000:80"               # anfitrión:contenedor
+    depends_on:
+      app:
+        condition: service_healthy   # no arranca hasta que django esté sano
+    restart: unless-stopped
+
+volumes:
+  db-data:
+  pgadmin-data:
