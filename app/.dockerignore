@@ -1,0 +1,11 @@
+# Excluye del contexto de construcción de la imagen Django:
+# más rápido y sin basura en la imagen.
+
+__pycache__/
+*.pyc
+.venv/
+venv/
+data/
+
+# Fichero obsoleto de la versión anterior (no forma parte del proyecto)
+app.py

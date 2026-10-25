@@ -1,0 +1,12 @@
+# Versiones orientativas: cualquier estable publicada en el registro sirve.
+# Django: framework del servidor de aplicaciones.
+# Gunicorn: servidor WSGI que ejecuta la aplicación en producción.
+# psycopg: driver de PostgreSQL; el extra "binary" instala una rueda
+# precompilada (no hace falta compilador en la imagen). Solo se usa si hay
+# variables de entorno DB_* configuradas (ver config/settings.py).
+# ldap3: cliente LDAP puro Python; se usa solo si LDAP_HOST está definida para
+# autenticar contra el servicio de directorio en /api/login (ver api/views.py).
+Django==5.1.6
+gunicorn==23.0.0
+psycopg[binary]==3.2.4
+ldap3==2.9.1
