@@ -1,4 +1,91 @@
-## compose.yml
+# Aplicación Web con base de datos en contenedores - AE4
+
+```mermaid
+graph LR
+    Client[Cliente / Navegador] -->|Puerto 8000| Nginx[nginx]
+    Nginx -->|Proxy inverso| App[app: Django + Gunicorn]
+    App -->|Conexión SQL| DB[(db: PostgreSQL)]
+    Admin[Usuario pgAdmin] -->|Puerto 5050| PGAdmin[pgadmin4]
+    PGAdmin -->|Gestión| DB
+```
+
+## Índice
+
+- [Preparación del Entorno](#preparación-del-entorno)
+- [Orquestación con Docker Compose (compose.yml)](#orquestación-con-docker-compose-composeyml)
+  - [1. Servicio de Base de Datos (`db`)](#seccion-db)
+  - [2. Servicio de Administración (`pgadmin`)](#seccion-pgadmin)
+  - [3. Servidor de Aplicaciones Backend (`app`)](#seccion-app)
+  - [4. Servidor Web y Proxy Inverso (`nginx`)](#seccion-nginx)
+  - [Declaración de Volúmenes Globales](#seccion-volumenes)
+- [Automatización con el script de despliegue (`deploy.sh`)](#automatización-con-el-script-de-despliegue-deploysh)
+- [Comprobaciones y Generación de Evidencias (`comprobaciones.txt`)](#comprobaciones-y-generación-de-evidencias-comprobacionestxt)
+- [Despliegue y Ejecución](#despliegue-y-ejecución)
+- [Comprobaciones y Salud (Healthchecks)](#comprobaciones-y-salud-healthchecks)
+- [Accesos y Puertos](#accesos-y-puertos)
+- [Permisos en Directorios Locales (Linux)](#permisos-en-directorios-locales-linux)
+- [Enlace al Repositorio Remoto](#enlace-al-repositorio-remoto)
+
+## Preparación del Entorno
+
+* Crea un fichero `.gitignore` para excluir carpetas innecesarias o ficheros de entorno.
+
+* Crea la carpeta `db` con el script `init.sql`
+```sql
+-- Datos de ejemplo de la aplicación (TravelRoad adaptada al curso DPL).
+-- PostgreSQL ejecuta este fichero UNA sola vez: al inicializar el volumen de
+-- datos (carpeta /docker-entrypoint-initdb.d de la imagen oficial de Postgres).
+-- Para volver a ejecutarlo desde cero:
+--   docker compose down -v && docker compose up -d
+--
+-- Carga masiva: en un despliegue real los datos llegarían con COPY (ver
+-- db/places.csv y la práctica guiada de PostgreSQL); aquí se incluyen unas
+-- filas de ejemplo para que el despliegue sea verificable de inmediato.
+
+CREATE TABLE IF NOT EXISTS places (
+    id      SERIAL PRIMARY KEY,
+    name    VARCHAR(255) NOT NULL,
+    visited BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+INSERT INTO places (name, visited) VALUES
+    ('Tokio', FALSE),
+    ('Budapest', TRUE),
+    ('Nairobi', FALSE),
+    ('Berlín', TRUE),
+    ('Lisboa', TRUE),
+    ('Denver', FALSE),
+    ('Moscú', FALSE),
+    ('Oslo', FALSE),
+    ('Río', TRUE),
+    ('Cincinnati', FALSE),
+    ('Helsinki', FALSE);
+```
+
+* Preparación del servidor de aplicaciones (`app/`)
+    * Se copia la carpeta proporcionada por el material, conteniendo:
+        * Dockerfile
+        * manage.py
+        * requirements.txt (con Django, Gunicorn, psycopg, etc.)
+        * Carpetas `config/` y `api/` (con sus respectivas vistas `/`, `/healthz`, `/api/lugares`, etc.)
+
+* Crea la carpeta `nginx/` con el fichero `default.conf` para redirigir el tráfico hacia el servicio de la aplicación:
+
+```conf
+server {
+    listen 80;
+    server_name _;
+
+    location / {
+        proxy_pass http://app:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}
+```
+
+## Orquestación con Docker Compose (compose.yml)
 
 En el archivo `compose.yml` se crea la infraestructura de la aplicación (Base de Datos, Herramienta de Administración, Backend en Django y Servidor Web/Proxy Inverso con Nginx).
 
@@ -8,6 +95,8 @@ El archivo define un proyecto llamado **`dpl-app`** que despliega 4 servicios in
 2. **`pgadmin`**: Interfaz web de administración para la base de datos.
 3. **`app`**: Servidor de aplicaciones backend (Django).
 4. **`nginx`**: Servidor web, proxy inverso y distribuidor de la SPA del frontend.
+
+<div id="seccion-db"></div>
 
 ## 🗄️ 1. Servicio de Base de Datos (`db`)
 
@@ -49,7 +138,7 @@ Esto significa que tu máquina física no puede conectarse directamente desde fu
         * `POSTGRES_USER: alumno`: Define el nombre de usuario administrador/principal con el que se conectará la aplicación.
         * `POSTGRES_PASSWORD: ${DB_PASSWORD}`: Establece la contraseña del usuario leyendo el valor de forma segura desde una variable de entorno externa (definida en tu archivo `.env` o en el sistema), evitando dejar claves en texto plano dentro del código.
 * `volumes`: (Persistencia y configuración inicial)
-    * `db-data:/var/lib/postgresql/data` # datos persistentes: Conecta un volumen nombrado llamado `db-data` a la ruta interna donde PostgreSQL guarda todos sus registros. Esto garantiza que la información de la base de datos no se pierda aunque apagues o elimines los contenedores con `docker compose down`.
+    * `db-data:/var/lib/postgresql/data`: Conecta un volumen nombrado llamado `db-data` a la ruta interna donde PostgreSQL guarda todos sus registros. Esto garantiza que la información de la base de datos no se pierda aunque apagues o elimines los contenedores con `docker compose down`.
     * `./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro` # carga inicial: Monta un script SQL local (./db/init.sql) dentro de la carpeta de inicialización automática de Postgres en modo solo lectura (`ro` de read-only). PostgreSQL ejecutará este script de forma automática únicamente la primera vez que se cree el volumen de datos (ideal para poblar esquemas, tablas o datos de prueba iniciales).
 * `healthcheck`: (Comprobación de estado)
     * Permite que Docker supervise si la base de datos realmente está operativa y lista para recibir tráfico, evitando que otros servicios dependientes arranquen a tiempo antes de que la base de datos acepte conexiones.
@@ -62,6 +151,8 @@ Esto significa que tu máquina física no puede conectarse directamente desde fu
     * Política de reinicio automático: El contenedor se reiniciará automáticamente si se produce un fallo inesperado o si se reinicia el sistema Docker, a menos que hayas detenido el servicio de forma manual con un comando de parada explícito.
 
 ---
+
+<div id="seccion-pgadmin"></div>
 
 ## 📊 2. Servicio de Administración (`pgadmin`)
 
@@ -121,6 +212,8 @@ test: `["CMD-SHELL", "wget -q -O - http://localhost:80/misc/ping | grep -q PING"
     * Política de reinicio automático: El contenedor se reiniciará automáticamente ante un fallo inesperado o un reinicio del sistema, a menos que lo hayas detenido de forma manual.
 
 ---
+
+<div id="seccion-app"></div>
 
 ## ⚙️ 3. Servidor de Aplicaciones Backend (`app`)
 
@@ -183,6 +276,8 @@ test: `["CMD-SHELL", "wget -q -O - http://localhost:80/misc/ping | grep -q PING"
 
 ---
 
+<div id="seccion-nginx"></div>
+
 ## 🌐 4. Servidor Web y Proxy Inverso (`nginx`)
 
 ```yaml
@@ -226,6 +321,8 @@ Actúa como la única puerta de entrada pública de la arquitectura. Sirve los a
 
 ---
 
+<div id="seccion-volumenes"></div>
+
 ## 📦 Declaración de Volúmenes Globales
 
 ```yaml
@@ -235,3 +332,97 @@ volumes:
 ```
 
 * Se declaran los volúmenes persistentes gestionados por Docker (`db-data` y `pgadmin-data`) para garantizar que la información de la base de datos y las preferencias de PgAdmin no se pierdan al destruir o recrear los contenedores.
+
+## Automatización con el script de despliegue (`deploy.sh`)
+
+Crea el fichero `deploy.sh` en la raiz del proyecto para automatizar la construcción, arranque y verificación del sistema.
+
+```bash
+cat > ~/dpl/ae4/deploy.sh <<'EOF'
+#!/usr/bin/env bash
+# deploy.sh — reconstruye y verifica el despliegue (curso DPL, UT4).
+set -euo pipefail
+
+echo "== Construyendo imagenes =="
+docker compose build
+
+echo "== Arrancando servicios =="
+docker compose up -d
+
+echo "== Esperando a que /healthz responda 200 =="
+for intento in $(seq 1 30); do
+  if curl -sf http://localhost:8000/healthz >/dev/null; then
+    echo "Despliegue sano tras $intento intento(s)."
+    docker compose ps
+    exit 0
+  fi
+  sleep 2
+done
+
+echo "ERROR: /healthz no respondio en 60 s" >&2
+docker compose logs --tail=20 >&2
+exit 1
+EOF
+chmod +x ~/dpl/ae4/deploy.sh # permisos de ejecución obligatorios
+cd ~/dpl/ae4 && ./deploy.sh
+```
+
+---
+
+## Comprobaciones y Generación de Evidencias (`comprobaciones.txt`)
+
+Ejecuta o levanta el entorno manualmente y realizando las comprobaciones necesarias guardando sus salidas en `comprobaciones.txt`:
+
+```bash
+docker compose up -d
+docker compose ps > comprobaciones.txt
+curl -I http://localhost:8000/ >> comprobaciones.txt
+curl -sf http://localhost:8000/healthz >> comprobaciones.txt
+docker compose exec -T db psql -U alumno -d travelroad -c "SELECT count(*) FROM places;" >> comprobaciones.txt
+curl -sf http://localhost:8000/api/lugares >> comprobaciones.txt
+```
+
+---
+
+## Despliegue y Ejecución
+
+1. Desde el directorio del proyecto, levantar los servicios en segundo plano:
+
+```bash
+docker compose up -d
+```
+
+2. Verificar el estado de los contenedores y sus healthchecks:
+
+```bash
+docker compose ps
+```
+
+---
+
+## Comprobaciones y Salud (Healthchecks)
+
+El sistema implementa comprobaciones de salud automáticas para garantizar el orden correcto de arranque y disponibilidad:
+* `db`: Comprueba que PostgreSQL acepta conexiones mediante pg_isready.
+* `app`: Valida periódicamente el endpoint /healthz de Django.
+* `pgadmin`: Comprueba el servicio web interno de ping.
+* `nginx`: Asegura el reenvío correcto del tráfico hacia la aplicación.
+
+## Accesos y Puertos
+
+* Una vez desplegado el sistema, puedes acceder a los servicios a través de los siguientes puertos expuestos en el anfitrión:
+
+    * Aplicación Web (Nginx / Django): http://localhost:8000
+    * pgAdmin (Gestor de Base de Datos): http://localhost:5050
+
+## Permisos en Directorios Locales (Linux)
+
+Si el servicio de aplicación (`app`) necesita escribir en el volumen montado en el directorio local `./data`, asegúrate de asignar los permisos correctos al usuario del contenedor:
+
+```bash
+sudo chown -R 1000:1000 data
+```
+
+## Enlace al Repositorio Remoto
+Puedes consultar el código fuente y el historial de commits en el siguiente repositorio:
+- [GitHub - AE4](https://github.com/manuelgm92/ae4)
