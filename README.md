@@ -23,7 +23,9 @@ graph LR
 - [Despliegue y Ejecución](#despliegue-y-ejecución)
 - [Comprobaciones y Salud (Healthchecks)](#comprobaciones-y-salud-healthchecks)
 - [Accesos y Puertos](#accesos-y-puertos)
+- [Registrar servidor en pgAdmin](#registrar-servidor-en-pgadmin)
 - [Permisos en Directorios Locales (Linux)](#permisos-en-directorios-locales-linux)
+- [Incidencias y Resolución de Problemas](#incidencias-y-resolución-de-problemas)
 - [Enlace al Repositorio Remoto](#enlace-al-repositorio-remoto)
 
 ## Preparación del Entorno
@@ -382,6 +384,27 @@ docker compose exec -T db psql -U alumno -d travelroad -c "SELECT count(*) FROM 
 curl -sf http://localhost:8000/api/lugares >> comprobaciones.txt
 ```
 
+Salida en `comprobaciones.txt`:
+```
+NAME          IMAGE                COMMAND                  SERVICE   CREATED          STATUS                            PORTS
+dpl-db        postgres:16-alpine   "docker-entrypoint.s…"   db        12 seconds ago   Up 11 seconds (healthy)           5432/tcp
+dpl-django    dpl-app-app          "gunicorn config.wsg…"   app       12 seconds ago   Up 5 seconds (healthy)            8000/tcp
+dpl-nginx     nginx:1.27-alpine    "/docker-entrypoint.…"   nginx     12 seconds ago   Up Less than a second             0.0.0.0:8000->80/tcp, [::]:8000->80/tcp
+dpl-pgadmin   dpage/pgadmin4       "/entrypoint.sh"         pgadmin   12 seconds ago   Up 5 seconds (health: starting)   0.0.0.0:5050->80/tcp, [::]:5050->80/tcp
+HTTP/1.1 200 OK
+Server: nginx/1.27.5
+Date: Mon, 26 Oct 2026 09:49:38 GMT
+Content-Type: text/html; charset=utf-8
+Connection: keep-alive
+
+{"status": "ok", "hostname": "263da214dd2b"} count 
+-------
+    11
+(1 row)
+
+{"lugares": [{"id": 1, "name": "Tokio", "visited": false}, {"id": 2, "name": "Budapest", "visited": true}, {"id": 3, "name": "Nairobi", "visited": false}, {"id": 4, "name": "Berl\u00edn", "visited": true}, {"id": 5, "name": "Lisboa", "visited": true}, {"id": 6, "name": "Denver", "visited": false}, {"id": 7, "name": "Mosc\u00fa", "visited": false}, {"id": 8, "name": "Oslo", "visited": false}, {"id": 9, "name": "R\u00edo", "visited": true}, {"id": 10, "name": "Cincinnati", "visited": false}, {"id": 11, "name": "Helsinki", "visited": false}], "total": 11}
+```
+
 ---
 
 ## Despliegue y Ejecución
@@ -392,10 +415,29 @@ curl -sf http://localhost:8000/api/lugares >> comprobaciones.txt
 docker compose up -d
 ```
 
+Salida:
+```bash
+[+] up 5/5
+✔ Network dpl-app_default Created
+✔ Container dpl-db Healthy
+✔ Container dpl-pgadmin Started
+✔ Container dpl-django Healthy
+✔ Container dpl-nginx Started
+```
+
 2. Verificar el estado de los contenedores y sus healthchecks:
 
 ```bash
 docker compose ps
+```
+
+Salida:
+```bash
+NAME          IMAGE                COMMAND                  SERVICE   CREATED         STATUS                   PORTS
+dpl-db        postgres:16-alpine   "docker-entrypoint.s…"   db        2 minutes ago   Up 2 minutes (healthy)   5432/tcp
+dpl-django    dpl-app-app          "gunicorn config.wsg…"   app       2 minutes ago   Up 2 minutes (healthy)   8000/tcp
+dpl-nginx     nginx:1.27-alpine    "/docker-entrypoint.…"   nginx     2 minutes ago   Up 2 minutes             0.0.0.0:8000->80/tcp, [::]:8000->80/tcp
+dpl-pgadmin   dpage/pgadmin4       "/entrypoint.sh"         pgadmin   2 minutes ago   Up 2 minutes (healthy)   0.0.0.0:5050->80/tcp, [::]:5050->80/tcp
 ```
 
 ---
@@ -415,6 +457,24 @@ El sistema implementa comprobaciones de salud automáticas para garantizar el or
     * Aplicación Web (Nginx / Django): http://localhost:8000
     * pgAdmin (Gestor de Base de Datos): http://localhost:5050
 
+## Registrar servidor en pgAdmin
+
+Abre http://localhost:5050 en el navegador e inicia sesión con las credenciales del entorno.
+
+1. Botón derecho sobre **Servers → Register → Server**.
+2. Pestaña General: nombre `TravelRoad`.
+3. Pestaña **Connection**: rellena los valores de la tabla siguiente.
+4. **Save** y navega por **Databases → travelroad → Schemas → public → Tables → places**; con el botón derecho → View/Edit Data puedes ver y editar las filas.
+
+|Campo|	Valor|
+|--|--|
+Host |name/address|	db
+|Port	|5432|
+|Maintenance database	|travelroad|
+|Username	|alumno|
+|Password	|valor de DB_PASSWORD|
+
+
 ## Permisos en Directorios Locales (Linux)
 
 Si el servicio de aplicación (`app`) necesita escribir en el volumen montado en el directorio local `./data`, asegúrate de asignar los permisos correctos al usuario del contenedor:
@@ -422,6 +482,32 @@ Si el servicio de aplicación (`app`) necesita escribir en el volumen montado en
 ```bash
 sudo chown -R 1000:1000 data
 ```
+
+## Incidencias y Resolución de Problemas
+
+Durante el desarrollo y despliegue del proyecto, nos encontramos con dos incidencias principales relacionadas con la persistencia, los permisos y el aislamiento de contenedores:
+
+### 1. Conflicto de credenciales / configuración previa en pgAdmin
+* **¿Qué pasó?** Al levantar el contenedor de pgAdmin por primera vez, la interfaz web devolvía errores de autenticación o fallaba al arrancar debido a conflictos residuales con volúmenes o credenciales de una caché de Docker anterior en la máquina local.
+* **Cómo se resolvió:** Se realizó una limpieza profunda de los contenedores huérfanos y los volúmenes en caché asociados a pgAdmin para forzar un reinicio limpio del servicio, asegurando que el punto de entrada cargase con las variables de entorno configuradas por defecto en el `compose.yml`.
+
+    ```bash
+    # 1. Bajar los contenedores y limpiar volúmenes residuales o huérfanos
+    docker compose down -v --remove-orphans
+
+    # 2. Reconstruir las imágenes desde cero y levantar el entorno limpio
+    ./deploy.sh
+    ```
+
+### 2. Bloqueo del contador de visitas (`visitas.txt` estancado en un valor fijo)
+* **¿Qué pasó?** El endpoint `/api/visitas` devolvía de forma estática el valor `7` sin incrementar en sucesivas peticiones. Al inspeccionar el sistema, se detectó que el archivo `data/visitas.txt` montado mediante volumen local carecía de los permisos de escritura adecuados para el UID del proceso dentro del contenedor (`1000:1000`), provocando que la aplicación capturase el error de escritura de forma silenciosa y continuase leyendo siempre el mismo valor antiguo.
+* **Cómo se resolvió:** 
+  1. Se ajustaron los permisos y la propiedad del directorio compartido y del archivo de texto para otorgar acceso de lectura y escritura al usuario UID `1000`:
+     ```bash
+     sudo chown -R 1000:1000 data/
+     sudo chmod 666 data/visitas.txt
+     ```
+  2. Se validó la correcta persistencia comprobando que el archivo incrementa su valor fluidamente tras reiniciar los servicios (`docker compose restart app`).
 
 ## Enlace al Repositorio Remoto
 Puedes consultar el código fuente y el historial de commits en el siguiente repositorio:
