@@ -462,6 +462,8 @@ El sistema implementa comprobaciones de salud automáticas para garantizar el or
 Abre http://localhost:5050 en el navegador e inicia sesión con las credenciales del entorno.
 
 1. Botón derecho sobre **Servers → Register → Server**.
+
+    ![alt text](image.png)
 2. Pestaña General: nombre `TravelRoad`.
 3. Pestaña **Connection**: rellena los valores de la tabla siguiente.
 4. **Save** y navega por **Databases → travelroad → Schemas → public → Tables → places**; con el botón derecho → View/Edit Data puedes ver y editar las filas.
@@ -474,6 +476,17 @@ Host |name/address|	db
 |Username	|alumno|
 |Password	|valor de DB_PASSWORD|
 
+
+![alt text](image-1.png)
+
+Realiza una petición HTTP directa al servidor web de pgAdmin para comprobar que su motor interno está activo y respondiendo.
+
+```bash
+$ curl -s http://localhost:5050/misc/ping
+PING
+```
+
+PING indica que pgAdmin está operativo en el puerto 5050 y respondiendo correctamente.
 
 ## Permisos en Directorios Locales (Linux)
 
